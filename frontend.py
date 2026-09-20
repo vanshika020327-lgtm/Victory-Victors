@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
 import folium
+import requests
 
 from streamlit_folium import st_folium
 
-from backend import (
-    optimize_warehouses,
-    calculate_cost,
-    calculate_original_cost
-)
-
 
 # ============================================================
-# PAGE CONFIG
+# CONFIGURATION
 # ============================================================
+
+API_URL = "http://127.0.0.1:8000"
+
 
 st.set_page_config(
     page_title="Warehouse Optimization",
@@ -32,7 +30,7 @@ st.title(
 
 st.write(
     """
-    Find optimal warehouse locations, assign neighborhoods,
+    Optimize warehouse locations, assign neighborhoods,
     and minimize demand-weighted delivery cost.
     """
 )
@@ -46,6 +44,7 @@ st.sidebar.header(
     "⚙️ Optimization Settings"
 )
 
+
 number_of_warehouses = st.sidebar.number_input(
     "Number of Warehouses",
     min_value=1,
@@ -54,6 +53,7 @@ number_of_warehouses = st.sidebar.number_input(
     step=1
 )
 
+
 cost_per_km = st.sidebar.number_input(
     "Delivery Cost per Order-KM",
     min_value=0.0,
@@ -61,20 +61,22 @@ cost_per_km = st.sidebar.number_input(
     step=0.1
 )
 
+
 warehouse_capacity = st.sidebar.number_input(
     "Warehouse Capacity (orders/day)",
     min_value=0.0,
     value=0.0,
     step=100.0,
-    help="Set to 0 for unlimited capacity."
+    help="Enter 0 for unlimited capacity."
 )
+
 
 max_radius = st.sidebar.number_input(
     "Maximum Service Radius (km)",
     min_value=0.0,
     value=0.0,
     step=1.0,
-    help="Set to 0 for unlimited radius."
+    help="Enter 0 for unlimited radius."
 )
 
 
@@ -83,11 +85,12 @@ max_radius = st.sidebar.number_input(
 # ============================================================
 
 st.sidebar.header(
-    "📥 Data Input"
+    "📥 Neighborhood Data"
 )
 
+
 data_option = st.sidebar.selectbox(
-    "Choose data source",
+    "Data Source",
     [
         "Sample Data",
         "Upload CSV",
@@ -100,80 +103,85 @@ data_option = st.sidebar.selectbox(
 # SAMPLE DATA
 # ============================================================
 
-def sample_data():
+def get_sample_data():
 
     return pd.DataFrame(
         {
-            "neighborhood": [
-                "Central",
-                "North",
-                "South",
-                "East",
-                "West",
-                "North-East",
-                "North-West",
-                "South-East",
-                "South-West",
-                "Airport",
-                "Industrial",
-                "University"
-            ],
 
-            "latitude": [
-                12.9716,
-                13.0358,
-                12.9116,
-                12.9850,
-                12.9507,
-                13.0150,
-                13.0200,
-                12.9300,
-                12.9250,
-                13.1986,
-                13.0500,
-                12.9352
-            ],
+            "neighborhood":
+                [
+                    "Central",
+                    "North",
+                    "South",
+                    "East",
+                    "West",
+                    "North-East",
+                    "North-West",
+                    "South-East",
+                    "South-West",
+                    "Airport",
+                    "Industrial",
+                    "University"
+                ],
 
-            "longitude": [
-                77.5946,
-                77.5970,
-                77.6100,
-                77.6500,
-                77.5300,
-                77.6700,
-                77.5500,
-                77.6800,
-                77.5400,
-                77.7066,
-                77.5000,
-                77.6200
-            ],
+            "latitude":
+                [
+                    12.9716,
+                    13.0358,
+                    12.9116,
+                    12.9850,
+                    12.9507,
+                    13.0150,
+                    13.0200,
+                    12.9300,
+                    12.9250,
+                    13.1986,
+                    13.0500,
+                    12.9352
+                ],
 
-            "daily_orders": [
-                800,
-                550,
-                600,
-                900,
-                500,
-                700,
-                450,
-                650,
-                400,
-                750,
-                300,
-                850
-            ]
+            "longitude":
+                [
+                    77.5946,
+                    77.5970,
+                    77.6100,
+                    77.6500,
+                    77.5300,
+                    77.6700,
+                    77.5500,
+                    77.6800,
+                    77.5400,
+                    77.7066,
+                    77.5000,
+                    77.6200
+                ],
+
+            "daily_orders":
+                [
+                    800,
+                    550,
+                    600,
+                    900,
+                    500,
+                    700,
+                    450,
+                    650,
+                    400,
+                    750,
+                    300,
+                    850
+                ]
         }
     )
 
 
 # ============================================================
-# GET DATA
+# LOAD DATA
 # ============================================================
 
 if data_option == "Sample Data":
 
-    df = sample_data()
+    df = get_sample_data()
 
 
 elif data_option == "Upload CSV":
@@ -186,7 +194,7 @@ elif data_option == "Upload CSV":
     if uploaded_file is None:
 
         st.info(
-            "Please upload a CSV file."
+            "Upload a CSV file to continue."
         )
 
         st.stop()
@@ -200,7 +208,7 @@ elif data_option == "Upload CSV":
     except Exception as error:
 
         st.error(
-            f"Could not read file: {error}"
+            f"Unable to read CSV: {error}"
         )
 
         st.stop()
@@ -209,14 +217,14 @@ elif data_option == "Upload CSV":
 else:
 
     df = st.data_editor(
-        sample_data(),
+        get_sample_data(),
         num_rows="dynamic",
         use_container_width=True
     )
 
 
 # ============================================================
-# VALIDATE BASIC COLUMNS
+# CHECK COLUMNS
 # ============================================================
 
 required_columns = [
@@ -226,17 +234,19 @@ required_columns = [
     "daily_orders"
 ]
 
-missing_columns = [
+
+missing = [
     column
     for column in required_columns
     if column not in df.columns
 ]
 
-if missing_columns:
+
+if missing:
 
     st.error(
         "Missing columns: "
-        + ", ".join(missing_columns)
+        + ", ".join(missing)
     )
 
     st.stop()
@@ -250,30 +260,35 @@ st.header(
     "📊 Neighborhood Data"
 )
 
-col1, col2, col3, col4 = st.columns(4)
 
-with col1:
+c1, c2, c3, c4 = st.columns(4)
+
+
+with c1:
 
     st.metric(
         "Neighborhoods",
         len(df)
     )
 
-with col2:
+
+with c2:
 
     st.metric(
         "Total Daily Orders",
         f"{df['daily_orders'].sum():,.0f}"
     )
 
-with col3:
+
+with c3:
 
     st.metric(
         "Average Orders",
         f"{df['daily_orders'].mean():,.0f}"
     )
 
-with col4:
+
+with c4:
 
     st.metric(
         "Maximum Orders",
@@ -293,13 +308,14 @@ st.dataframe(
 # ============================================================
 
 st.header(
-    "🗺️ Neighborhood Map"
+    "🗺️ Neighborhood Locations"
 )
 
 
 center_lat = df[
     "latitude"
 ].mean()
+
 
 center_lon = df[
     "longitude"
@@ -318,6 +334,7 @@ initial_map = folium.Map(
 for _, row in df.iterrows():
 
     folium.CircleMarker(
+
         location=[
             row["latitude"],
             row["longitude"]
@@ -325,20 +342,24 @@ for _, row in df.iterrows():
 
         radius=7,
 
-        popup=(
-            f"<b>{row['neighborhood']}</b><br>"
-            f"Orders: "
-            f"{row['daily_orders']}"
-        ),
-
         color="blue",
 
         fill=True,
 
         fill_color="blue",
 
-        fill_opacity=0.7
-    ).add_to(initial_map)
+        fill_opacity=0.8,
+
+        popup=(
+            f"<b>"
+            f"{row['neighborhood']}"
+            f"</b><br>"
+            f"Daily Orders: "
+            f"{row['daily_orders']}"
+        )
+    ).add_to(
+        initial_map
+    )
 
 
 st_folium(
@@ -349,23 +370,32 @@ st_folium(
 
 
 # ============================================================
-# OPTIMIZATION BUTTON
+# OPTIMIZE BUTTON
 # ============================================================
 
 st.header(
-    "🚀 Warehouse Optimization"
+    "🚀 Run Optimization"
 )
 
-run = st.button(
+
+run_optimization = st.button(
     "Optimize Warehouse Locations",
     type="primary",
     use_container_width=True
 )
 
 
-if run:
+if run_optimization:
 
-    if number_of_warehouses > len(df):
+    # --------------------------------------------------------
+    # Local validation
+    # --------------------------------------------------------
+
+    if (
+        number_of_warehouses
+        >
+        len(df)
+    ):
 
         st.error(
             "Number of warehouses cannot exceed "
@@ -374,522 +404,378 @@ if run:
 
         st.stop()
 
-    try:
 
-        with st.spinner(
-            "Running optimization..."
-        ):
+    # --------------------------------------------------------
+    # Prepare API request
+    # --------------------------------------------------------
 
-            (
-                result,
-                warehouse_locations,
-                distance_matrix
-            ) = optimize_warehouses(
+    neighborhoods = []
 
-                df,
+    for _, row in df.iterrows():
 
-                int(
-                    number_of_warehouses
-                ),
-
-                warehouse_capacity
-                if warehouse_capacity > 0
-                else None,
-
-                max_radius
-                if max_radius > 0
-                else None
-            )
-
-
-            (
-                result,
-                total_distance,
-                total_cost,
-                average_distance
-            ) = calculate_cost(
-
-                result,
-
-                cost_per_km
-            )
-
-
-            (
-                original_lat,
-                original_lon,
-                original_distance,
-                original_cost
-            ) = calculate_original_cost(
-
-                df,
-
-                cost_per_km
-            )
-
-
-        # ====================================================
-        # RESULTS
-        # ====================================================
-
-        st.success(
-            "Optimization completed successfully!"
-        )
-
-
-        # ====================================================
-        # METRICS
-        # ====================================================
-
-        st.subheader(
-            "📈 Optimization Results"
-        )
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        with c1:
-
-            st.metric(
-                "Warehouses",
-                number_of_warehouses
-            )
-
-        with c2:
-
-            st.metric(
-                "Weighted Distance",
-                f"{total_distance:,.2f} km"
-            )
-
-        with c3:
-
-            st.metric(
-                "Average Distance",
-                f"{average_distance:.2f} km"
-            )
-
-        with c4:
-
-            st.metric(
-                "Daily Delivery Cost",
-                f"{total_cost:,.2f}"
-            )
-
-
-        # ====================================================
-        # WAREHOUSE LOCATIONS
-        # ====================================================
-
-        st.subheader(
-            "🏭 Optimized Warehouse Locations"
-        )
-
-        warehouse_data = []
-
-        for i, location in enumerate(
-            warehouse_locations
-        ):
-
-            warehouse_data.append(
-                {
-                    "Warehouse":
-                        f"Warehouse {i + 1}",
-
-                    "Latitude":
-                        round(
-                            location[0],
-                            6
-                        ),
-
-                    "Longitude":
-                        round(
-                            location[1],
-                            6
-                        )
-                }
-            )
-
-        warehouse_df = pd.DataFrame(
-            warehouse_data
-        )
-
-        st.dataframe(
-            warehouse_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-        # ====================================================
-        # OPTIMIZED MAP
-        # ====================================================
-
-        st.subheader(
-            "🗺️ Optimized Warehouse Map"
-        )
-
-        optimized_map = folium.Map(
-            location=[
-                center_lat,
-                center_lon
-            ],
-            zoom_start=11
-        )
-
-
-        colors = [
-            "red",
-            "blue",
-            "green",
-            "purple",
-            "orange",
-            "darkred",
-            "lightblue",
-            "darkgreen",
-            "pink",
-            "cadetblue"
-        ]
-
-
-        # ----------------------------------------------------
-        # Neighborhoods
-        # ----------------------------------------------------
-
-        for index, row in result.iterrows():
-
-            warehouse_id = (
-                int(
-                    row["warehouse"]
-                ) - 1
-            )
-
-            color = colors[
-                warehouse_id
-                % len(colors)
-            ]
-
-            folium.CircleMarker(
-
-                location=[
-                    row["latitude"],
-                    row["longitude"]
-                ],
-
-                radius=7,
-
-                color=color,
-
-                fill=True,
-
-                fill_color=color,
-
-                fill_opacity=0.8,
-
-                popup=(
-                    f"<b>"
-                    f"{row['neighborhood']}"
-                    f"</b><br>"
-                    f"Daily Orders: "
-                    f"{row['daily_orders']}<br>"
-                    f"Warehouse: "
-                    f"{row['warehouse']}<br>"
-                    f"Distance: "
-                    f"{row['distance_km']:.2f} km"
-                )
-            ).add_to(
-                optimized_map
-            )
-
-
-            # ------------------------------------------------
-            # Assignment line
-            # ------------------------------------------------
-
-            warehouse = (
-                warehouse_locations[
-                    warehouse_id
-                ]
-            )
-
-            folium.PolyLine(
-
-                locations=[
-                    [
-                        row["latitude"],
-                        row["longitude"]
-                    ],
-
-                    [
-                        warehouse[0],
-                        warehouse[1]
-                    ]
-                ],
-
-                color=color,
-
-                weight=1,
-
-                opacity=0.5
-
-            ).add_to(
-                optimized_map
-            )
-
-
-        # ----------------------------------------------------
-        # Warehouses
-        # ----------------------------------------------------
-
-        for i, location in enumerate(
-            warehouse_locations
-        ):
-
-            color = colors[
-                i % len(colors)
-            ]
-
-            folium.Marker(
-
-                location=[
-                    location[0],
-                    location[1]
-                ],
-
-                popup=(
-                    f"<b>"
-                    f"Warehouse {i + 1}"
-                    f"</b><br>"
-                    f"Latitude: "
-                    f"{location[0]:.6f}<br>"
-                    f"Longitude: "
-                    f"{location[1]:.6f}"
-                ),
-
-                icon=folium.Icon(
-                    color=color,
-                    icon="home",
-                    prefix="fa"
-                )
-
-            ).add_to(
-                optimized_map
-            )
-
-
-        st_folium(
-            optimized_map,
-            width=None,
-            height=600
-        )
-
-
-        # ====================================================
-        # ASSIGNMENTS
-        # ====================================================
-
-        st.subheader(
-            "📦 Neighborhood Assignments"
-        )
-
-        display_result = result[
-            [
-                "neighborhood",
-                "latitude",
-                "longitude",
-                "daily_orders",
-                "warehouse",
-                "distance_km",
-                "weighted_distance",
-                "delivery_cost"
-            ]
-        ].copy()
-
-
-        display_result.columns = [
-            "Neighborhood",
-            "Latitude",
-            "Longitude",
-            "Daily Orders",
-            "Assigned Warehouse",
-            "Distance (km)",
-            "Weighted Distance",
-            "Delivery Cost"
-        ]
-
-
-        st.dataframe(
-            display_result,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-        # ====================================================
-        # COMPARISON
-        # ====================================================
-
-        st.header(
-            "📊 Original vs Optimized"
-        )
-
-
-        if original_distance > 0:
-
-            distance_improvement = (
-                (
-                    original_distance
-                    - total_distance
-                )
-                / original_distance
-            ) * 100
-
-        else:
-
-            distance_improvement = 0
-
-
-        if original_cost > 0:
-
-            cost_improvement = (
-                (
-                    original_cost
-                    - total_cost
-                )
-                / original_cost
-            ) * 100
-
-        else:
-
-            cost_improvement = 0
-
-
-        comparison = pd.DataFrame(
+        neighborhoods.append(
             {
-                "Metric": [
-                    "Weighted Distance",
-                    "Delivery Cost"
-                ],
+                "neighborhood":
+                    str(
+                        row["neighborhood"]
+                    ),
 
-                "Original": [
-                    original_distance,
-                    original_cost
-                ],
+                "latitude":
+                    float(
+                        row["latitude"]
+                    ),
 
-                "Optimized": [
-                    total_distance,
-                    total_cost
-                ],
+                "longitude":
+                    float(
+                        row["longitude"]
+                    ),
 
-                "Improvement (%)": [
-                    distance_improvement,
-                    cost_improvement
-                ]
+                "daily_orders":
+                    float(
+                        row["daily_orders"]
+                    )
             }
         )
 
 
-        st.dataframe(
-            comparison.style.format(
-                {
-                    "Original":
-                        "{:,.2f}",
+    request_data = {
 
-                    "Optimized":
-                        "{:,.2f}",
+        "neighborhoods":
+            neighborhoods,
 
-                    "Improvement (%)":
-                        "{:,.2f}%"
-                }
+        "number_of_warehouses":
+            int(
+                number_of_warehouses
             ),
 
-            use_container_width=True,
+        "cost_per_km":
+            float(
+                cost_per_km
+            ),
 
-            hide_index=True
-        )
+        "warehouse_capacity":
+            (
+                float(
+                    warehouse_capacity
+                )
+                if warehouse_capacity > 0
+                else None
+            ),
+
+        "max_radius":
+            (
+                float(
+                    max_radius
+                )
+                if max_radius > 0
+                else None
+            )
+    }
 
 
-        c1, c2 = st.columns(2)
+    # --------------------------------------------------------
+    # Send request to middleware
+    # --------------------------------------------------------
 
-        with c1:
+    try:
 
-            st.metric(
-                "Distance Improvement",
-                f"{distance_improvement:.2f}%"
+        with st.spinner(
+            "Connecting to optimization backend..."
+        ):
+
+            response = requests.post(
+                f"{API_URL}/optimize",
+                json=request_data,
+                timeout=120
             )
 
-        with c2:
 
-            st.metric(
-                "Cost Improvement",
-                f"{cost_improvement:.2f}%"
-            )
+    except requests.exceptions.ConnectionError:
 
+        st.error(
+            """
+            ❌ Could not connect to middleware.
 
-        # ====================================================
-        # DOWNLOAD
-        # ====================================================
+            Make sure you have started:
 
-        st.subheader(
-            "⬇️ Download Results"
+            python middleware.py
+            """
         )
 
+        st.stop()
 
-        csv = result.to_csv(
-            index=False
+
+    except requests.exceptions.Timeout:
+
+        st.error(
+            "The optimization server took too long to respond."
         )
 
-
-        st.download_button(
-
-            label="Download Results CSV",
-
-            data=csv,
-
-            file_name=
-                "warehouse_optimization_results.csv",
-
-            mime="text/csv",
-
-            use_container_width=True
-        )
+        st.stop()
 
 
     except Exception as error:
 
         st.error(
-            f"Optimization error: {error}"
+            f"Connection error: {error}"
         )
 
+        st.stop()
 
-# ============================================================
-# CSV FORMAT
-# ============================================================
 
-with st.expander(
-    "📋 Required CSV Format"
-):
+    # --------------------------------------------------------
+    # Process API response
+    # --------------------------------------------------------
 
-    st.code(
-        """
-neighborhood,latitude,longitude,daily_orders
-Central,12.9716,77.5946,800
-North,13.0358,77.5970,550
-South,12.9116,77.6100,600
-East,12.9850,77.6500,900
-West,12.9507,77.5300,500
-""",
-        language="csv"
+    if response.status_code != 200:
+
+        try:
+
+            error_message = (
+                response.json()
+                .get(
+                    "detail",
+                    "Unknown API error."
+                )
+            )
+
+        except Exception:
+
+            error_message = (
+                response.text
+            )
+
+        st.error(
+            f"❌ Optimization failed: "
+            f"{error_message}"
+        )
+
+        st.stop()
+
+
+    try:
+
+        data = response.json()
+
+    except Exception:
+
+        st.error(
+            "The middleware returned invalid JSON."
+        )
+
+        st.stop()
+
+
+    if not data.get(
+        "success",
+        False
+    ):
+
+        st.error(
+            data.get(
+                "message",
+                "Optimization failed."
+            )
+        )
+
+        st.stop()
+
+
+    # ========================================================
+    # RESULTS
+    # ========================================================
+
+    st.success(
+        "✅ Optimization completed successfully!"
     )
 
 
-# ============================================================
-# FOOTER
-# ============================================================
+    metrics = data[
+        "metrics"
+    ]
 
-st.divider()
 
-st.caption(
-    "Warehouse Location Optimization Platform | "
-    "Python + Streamlit + Scikit-learn + Folium"
-)
+    warehouses = data[
+        "warehouses"
+    ]
 
+
+    assignments = data[
+        "assignments"
+    ]
+
+
+    # ========================================================
+    # METRICS
+    # ========================================================
+
+    st.header(
+        "📈 Optimization Results"
+    )
+
+
+    m1, m2, m3, m4 = st.columns(4)
+
+
+    with m1:
+
+        st.metric(
+            "Warehouses",
+            metrics[
+                "number_of_warehouses"
+            ]
+        )
+
+
+    with m2:
+
+        st.metric(
+            "Weighted Distance",
+            f"{metrics['optimized_weighted_distance']:,.2f}"
+        )
+
+
+    with m3:
+
+        st.metric(
+            "Average Distance",
+            f"{metrics['optimized_average_distance']:.2f} km"
+        )
+
+
+    with m4:
+
+        st.metric(
+            "Daily Delivery Cost",
+            f"{metrics['optimized_delivery_cost']:,.2f}"
+        )
+
+
+    # ========================================================
+    # WAREHOUSE LOCATIONS
+    # ========================================================
+
+    st.subheader(
+        "🏭 Optimized Warehouse Locations"
+    )
+
+
+    warehouse_df = pd.DataFrame(
+        warehouses
+    )
+
+
+    warehouse_df.columns = [
+        "Warehouse",
+        "Latitude",
+        "Longitude"
+    ]
+
+
+    st.dataframe(
+        warehouse_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # ========================================================
+    # OPTIMIZED MAP
+    # ========================================================
+
+    st.subheader(
+        "🗺️ Optimized Warehouse Map"
+    )
+
+
+    optimized_map = folium.Map(
+        location=[
+            center_lat,
+            center_lon
+        ],
+        zoom_start=11
+    )
+
+
+    colors = [
+        "red",
+        "blue",
+        "green",
+        "purple",
+        "orange",
+        "darkred",
+        "lightblue",
+        "darkgreen",
+        "pink",
+        "cadetblue"
+    ]
+
+
+    # --------------------------------------------------------
+    # Neighborhoods and assignment lines
+    # --------------------------------------------------------
+
+    for item in assignments:
+
+        warehouse_index = (
+            item["warehouse"] - 1
+        )
+
+        color = colors[
+            warehouse_index
+            %
+            len(colors)
+        ]
+
+
+        folium.CircleMarker(
+
+            location=[
+                item["latitude"],
+                item["longitude"]
+            ],
+
+            radius=7,
+
+            color=color,
+
+            fill=True,
+
+            fill_color=color,
+
+            fill_opacity=0.8,
+
+            popup=(
+                f"<b>"
+                f"{item['neighborhood']}"
+                f"</b><br>"
+                f"Orders: "
+                f"{item['daily_orders']}<br>"
+                f"Warehouse: "
+                f"{item['warehouse']}<br>"
+                f"Distance: "
+                f"{item['distance_km']:.2f} km<br>"
+                f"Cost: "
+                f"{item['delivery_cost']:.2f}"
+            )
+        ).add_to(
+            optimized_map
+        )
+
+
+        warehouse = warehouses[
+            warehouse_index
+        ]
+
+
+        folium.PolyLine(
+
+            locations=[
+                [
+                    item["latitude"],
+                    item["longitude"]
+                ],
+
+                [
+                    warehouse["latitude"],
+                    warehouse["longitude"]
