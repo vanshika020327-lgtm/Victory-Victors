@@ -6,13 +6,24 @@ from sklearn.cluster import KMeans
 EARTH_RADIUS_KM = 6371.0088
 
 
-def haversine_distance(lat1, lon1, lat2, lon2):
+# ============================================================
+# HAVERSINE DISTANCE
+# ============================================================
+
+def haversine_distance(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
     """
-    Calculate geographical distance between two points in kilometers.
+    Calculate geographical distance between two points.
+    Result is in kilometers.
     """
 
     lat1 = np.radians(lat1)
     lon1 = np.radians(lon1)
+
     lat2 = np.radians(lat2)
     lon2 = np.radians(lon2)
 
@@ -21,71 +32,32 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
     a = (
         np.sin(dlat / 2) ** 2
-        + np.cos(lat1)
-        * np.cos(lat2)
-        * np.sin(dlon / 2) ** 2
+        +
+        np.cos(lat1)
+        *
+        np.cos(lat2)
+        *
+        np.sin(dlon / 2) ** 2
     )
 
-    return EARTH_RADIUS_KM * 2 * np.arcsin(np.sqrt(a))
+    a = np.clip(a, 0, 1)
 
-
-def geometric_median(points, weights, iterations=100):
-    """
-    Weighted geometric median using the Weiszfeld algorithm.
-    """
-
-    points = np.asarray(points, dtype=float)
-    weights = np.asarray(weights, dtype=float)
-
-    if len(points) == 1:
-        return points[0]
-
-    if weights.sum() == 0:
-        weights = np.ones(len(points))
-
-    current = np.average(
-        points,
-        axis=0,
-        weights=weights
+    return (
+        EARTH_RADIUS_KM
+        *
+        2
+        *
+        np.arcsin(
+            np.sqrt(a)
+        )
     )
 
-    for _ in range(iterations):
 
-        distances = np.linalg.norm(
-            points - current,
-            axis=1
-        )
-
-        distances = np.maximum(
-            distances,
-            1e-10
-        )
-
-        factors = weights / distances
-
-        new_point = (
-            np.sum(
-                points * factors[:, None],
-                axis=0
-            )
-            / factors.sum()
-        )
-
-        if np.linalg.norm(
-            new_point - current
-        ) < 1e-7:
-
-            break
-
-        current = new_point
-
-    return current
-
+# ============================================================
+# DATA VALIDATION
+# ============================================================
 
 def validate_data(df):
-    """
-    Validate neighborhood data.
-    """
 
     required_columns = [
         "neighborhood",
@@ -101,26 +73,34 @@ def validate_data(df):
     ]
 
     if missing:
+
         raise ValueError(
-            "Missing columns: "
+            "Missing required columns: "
             + ", ".join(missing)
         )
 
     if df.empty:
+
         raise ValueError(
-            "Dataset is empty."
+            "The dataset is empty."
         )
 
-    for column in [
-        "latitude",
-        "longitude",
-        "daily_orders"
-    ]:
+    df = df.copy()
 
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        )
+    df["latitude"] = pd.to_numeric(
+        df["latitude"],
+        errors="coerce"
+    )
+
+    df["longitude"] = pd.to_numeric(
+        df["longitude"],
+        errors="coerce"
+    )
+
+    df["daily_orders"] = pd.to_numeric(
+        df["daily_orders"],
+        errors="coerce"
+    )
 
     if df[
         [
@@ -136,7 +116,8 @@ def validate_data(df):
         )
 
     if not df["latitude"].between(
-        -90, 90
+        -90,
+        90
     ).all():
 
         raise ValueError(
@@ -144,7 +125,8 @@ def validate_data(df):
         )
 
     if not df["longitude"].between(
-        -180, 180
+        -180,
+        180
     ).all():
 
         raise ValueError(
@@ -167,8 +149,104 @@ def validate_data(df):
             "Total daily orders must be greater than zero."
         )
 
+    if (
+        df["neighborhood"]
+        .astype(str)
+        .str.strip()
+        .eq("")
+        .any()
+    ):
+
+        raise ValueError(
+            "Neighborhood names cannot be empty."
+        )
+
     return df
 
+
+# ============================================================
+# WEIGHTED GEOMETRIC MEDIAN
+# ============================================================
+
+def geometric_median(
+    points,
+    weights,
+    iterations=100
+):
+    """
+    Calculate weighted geometric median
+    using the Weiszfeld algorithm.
+    """
+
+    points = np.asarray(
+        points,
+        dtype=float
+    )
+
+    weights = np.asarray(
+        weights,
+        dtype=float
+    )
+
+    if len(points) == 1:
+
+        return points[0]
+
+    if weights.sum() <= 0:
+
+        weights = np.ones(
+            len(points)
+        )
+
+    current = np.average(
+        points,
+        axis=0,
+        weights=weights
+    )
+
+    for _ in range(iterations):
+
+        distances = np.linalg.norm(
+            points - current,
+            axis=1
+        )
+
+        distances = np.maximum(
+            distances,
+            1e-10
+        )
+
+        factors = (
+            weights / distances
+        )
+
+        new_point = (
+            np.sum(
+                points
+                *
+                factors[:, None],
+                axis=0
+            )
+            /
+            factors.sum()
+        )
+
+        movement = np.linalg.norm(
+            new_point - current
+        )
+
+        current = new_point
+
+        if movement < 1e-7:
+
+            break
+
+    return current
+
+
+# ============================================================
+# WAREHOUSE OPTIMIZATION
+# ============================================================
 
 def optimize_warehouses(
     df,
@@ -177,15 +255,17 @@ def optimize_warehouses(
     max_radius=None
 ):
     """
-    Main warehouse optimization algorithm.
+    Optimize warehouse locations.
 
-    Uses demand-weighted K-Means to obtain initial warehouse
-    locations, followed by weighted geometric median refinement.
+    Steps:
+    1. Demand-weighted K-Means.
+    2. Weighted geometric median refinement.
+    3. Calculate distances.
+    4. Assign neighborhoods.
+    5. Apply capacity and radius constraints.
     """
 
-    df = validate_data(
-        df.copy()
-    )
+    df = validate_data(df)
 
     if number_of_warehouses < 1:
 
@@ -205,35 +285,35 @@ def optimize_warehouses(
             "latitude",
             "longitude"
         ]
-    ].values
+    ].to_numpy()
 
     demand = df[
         "daily_orders"
-    ].values
+    ].to_numpy()
 
-    # ---------------------------------------------------------
-    # Step 1: Demand-weighted K-Means
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # STEP 1: K-MEANS
+    # --------------------------------------------------------
 
-    kmeans = KMeans(
+    model = KMeans(
         n_clusters=number_of_warehouses,
         random_state=42,
         n_init=20,
         max_iter=500
     )
 
-    kmeans.fit(
+    model.fit(
         coordinates,
         sample_weight=demand
     )
 
-    assignments = kmeans.labels_
+    assignments = model.labels_
+
+    # --------------------------------------------------------
+    # STEP 2: GEOMETRIC MEDIAN
+    # --------------------------------------------------------
 
     warehouse_locations = []
-
-    # ---------------------------------------------------------
-    # Step 2: Weighted geometric median
-    # ---------------------------------------------------------
 
     for warehouse_id in range(
         number_of_warehouses
@@ -245,10 +325,12 @@ def optimize_warehouses(
 
         if len(indexes) == 0:
 
+            index = np.argmax(
+                demand
+            )
+
             warehouse_locations.append(
-                coordinates[
-                    np.argmax(demand)
-                ]
+                coordinates[index]
             )
 
         else:
@@ -262,13 +344,13 @@ def optimize_warehouses(
                 location
             )
 
-    warehouse_locations = np.array(
+    warehouse_locations = np.asarray(
         warehouse_locations
     )
 
-    # ---------------------------------------------------------
-    # Step 3: Calculate distances
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # STEP 3: DISTANCE MATRIX
+    # --------------------------------------------------------
 
     distance_matrix = np.zeros(
         (
@@ -292,9 +374,9 @@ def optimize_warehouses(
                 )
             )
 
-    # ---------------------------------------------------------
-    # Step 4: Assignment
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # STEP 4: ASSIGNMENT
+    # --------------------------------------------------------
 
     final_assignments = np.full(
         len(df),
@@ -306,12 +388,12 @@ def optimize_warehouses(
         number_of_warehouses
     )
 
-    # High-demand neighborhoods first
-    order = np.argsort(
+    # High-demand locations first.
+    processing_order = np.argsort(
         -demand
     )
 
-    for i in order:
+    for i in processing_order:
 
         candidates = []
 
@@ -337,7 +419,8 @@ def optimize_warehouses(
             capacity_ok = (
                 warehouse_capacity is None
                 or warehouse_capacity <= 0
-                or (
+                or
+                (
                     capacity_used[
                         warehouse_id
                     ]
@@ -356,11 +439,11 @@ def optimize_warehouses(
 
             best = min(
                 candidates,
-                key=lambda x:
-                distance_matrix[
-                    i,
-                    x
-                ]
+                key=lambda warehouse_id:
+                    distance_matrix[
+                        i,
+                        warehouse_id
+                    ]
             )
 
             final_assignments[i] = best
@@ -371,15 +454,14 @@ def optimize_warehouses(
 
         else:
 
-            # If constraints make assignment impossible,
-            # assign to the nearest warehouse.
+            # Fallback if constraints make assignment impossible.
             final_assignments[i] = np.argmin(
                 distance_matrix[i]
             )
 
-    # ---------------------------------------------------------
-    # Step 5: Final distance
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # STEP 5: FINAL DISTANCES
+    # --------------------------------------------------------
 
     final_distances = np.array(
         [
@@ -387,29 +469,29 @@ def optimize_warehouses(
                 i,
                 final_assignments[i]
             ]
+
             for i in range(len(df))
         ]
     )
 
-    # ---------------------------------------------------------
-    # Step 6: Results
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # STEP 6: CREATE RESULT
+    # --------------------------------------------------------
 
     result = df.copy()
 
-    result[
-        "warehouse"
-    ] = final_assignments + 1
+    result["warehouse"] = (
+        final_assignments + 1
+    )
 
-    result[
-        "distance_km"
-    ] = final_distances
+    result["distance_km"] = (
+        final_distances
+    )
 
-    result[
-        "weighted_distance"
-    ] = (
+    result["weighted_distance"] = (
         result["daily_orders"]
-        * result["distance_km"]
+        *
+        result["distance_km"]
     )
 
     return (
@@ -419,21 +501,21 @@ def optimize_warehouses(
     )
 
 
+# ============================================================
+# COST CALCULATION
+# ============================================================
+
 def calculate_cost(
     result,
     cost_per_km
 ):
-    """
-    Calculate total delivery cost.
-    """
 
     result = result.copy()
 
-    result[
-        "delivery_cost"
-    ] = (
+    result["delivery_cost"] = (
         result["weighted_distance"]
-        * cost_per_km
+        *
+        cost_per_km
     )
 
     total_distance = (
@@ -448,11 +530,17 @@ def calculate_cost(
         result["daily_orders"].sum()
     )
 
-    average_distance = (
-        total_distance / total_orders
-        if total_orders > 0
-        else 0
-    )
+    if total_orders > 0:
+
+        average_distance = (
+            total_distance
+            /
+            total_orders
+        )
+
+    else:
+
+        average_distance = 0
 
     return (
         result,
@@ -462,13 +550,17 @@ def calculate_cost(
     )
 
 
+# ============================================================
+# ORIGINAL BASELINE
+# ============================================================
+
 def calculate_original_cost(
     df,
     cost_per_km
 ):
     """
-    Calculate baseline cost using one central,
-    demand-weighted warehouse.
+    Baseline:
+    one demand-weighted central warehouse.
     """
 
     latitude = np.average(
@@ -482,20 +574,22 @@ def calculate_original_cost(
     )
 
     distances = haversine_distance(
-        df["latitude"].values,
-        df["longitude"].values,
+        df["latitude"].to_numpy(),
+        df["longitude"].to_numpy(),
         latitude,
         longitude
     )
 
     weighted_distance = (
         distances
-        * df["daily_orders"].values
+        *
+        df["daily_orders"].to_numpy()
     ).sum()
 
     cost = (
         weighted_distance
-        * cost_per_km
+        *
+        cost_per_km
     )
 
     return (
