@@ -2,10 +2,10 @@ Link to website:-  http://localhost:8501/
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
+
 import pandas as pd
 import uvicorn
 
-# Import optimization functions from backend.py
 from backend import (
     optimize_warehouses,
     calculate_cost,
@@ -18,17 +18,18 @@ from backend import (
 # ============================================================
 
 app = FastAPI(
-    title="Warehouse Location Optimization API",
-    description="Middleware connecting the Streamlit frontend with the Python optimization backend.",
+    title="Warehouse Optimization API",
+    description="Middleware between frontend and optimization backend.",
     version="1.0.0"
 )
 
 
 # ============================================================
-# DATA MODELS
+# REQUEST MODELS
 # ============================================================
 
 class Neighborhood(BaseModel):
+
     neighborhood: str
 
     latitude: float = Field(
@@ -70,7 +71,7 @@ class OptimizationRequest(BaseModel):
 
 
 # ============================================================
-# HOME / HEALTH CHECK
+# HOME
 # ============================================================
 
 @app.get("/")
@@ -78,14 +79,16 @@ def home():
 
     return {
         "success": True,
-        "message": "Warehouse Optimization API is running",
-        "service": "Warehouse Location Optimization",
-        "version": "1.0.0"
+        "message": "Warehouse Optimization API is running."
     }
 
 
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
 @app.get("/health")
-def health_check():
+def health():
 
     return {
         "success": True,
@@ -98,12 +101,14 @@ def health_check():
 # ============================================================
 
 @app.post("/optimize")
-def optimize(request: OptimizationRequest):
+def optimize(
+    request: OptimizationRequest
+):
 
     try:
 
         # ----------------------------------------------------
-        # 1. Convert incoming JSON into Python data
+        # Convert request to DataFrame
         # ----------------------------------------------------
 
         neighborhood_data = []
@@ -126,52 +131,37 @@ def optimize(request: OptimizationRequest):
                 }
             )
 
-
-        # ----------------------------------------------------
-        # 2. Convert data to DataFrame
-        # ----------------------------------------------------
-
         df = pd.DataFrame(
             neighborhood_data
         )
 
-
         # ----------------------------------------------------
-        # 3. Basic validation
+        # Validation
         # ----------------------------------------------------
 
         if df.empty:
 
             raise HTTPException(
                 status_code=400,
-                detail="No neighborhood data was provided."
+                detail="No neighborhood data provided."
             )
 
-
-        if request.number_of_warehouses > len(df):
+        if (
+            request.number_of_warehouses
+            >
+            len(df)
+        ):
 
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Number of warehouses cannot be "
-                    "greater than number of neighborhoods."
+                    "Number of warehouses cannot exceed "
+                    "number of neighborhoods."
                 )
             )
-
-
-        if df["daily_orders"].sum() <= 0:
-
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Total daily orders must be "
-                    "greater than zero."
-                )
-            )
-
 
         # ----------------------------------------------------
-        # 4. Prepare constraints
+        # Constraints
         # ----------------------------------------------------
 
         capacity = (
@@ -181,7 +171,6 @@ def optimize(request: OptimizationRequest):
             else None
         )
 
-
         radius = (
             request.max_radius
             if request.max_radius
@@ -189,9 +178,8 @@ def optimize(request: OptimizationRequest):
             else None
         )
 
-
         # ----------------------------------------------------
-        # 5. CALL BACKEND OPTIMIZATION
+        # CALL BACKEND
         # ----------------------------------------------------
 
         (
@@ -209,9 +197,8 @@ def optimize(request: OptimizationRequest):
             radius
         )
 
-
         # ----------------------------------------------------
-        # 6. Calculate optimized delivery cost
+        # CALCULATE COST
         # ----------------------------------------------------
 
         (
@@ -226,9 +213,8 @@ def optimize(request: OptimizationRequest):
             request.cost_per_km
         )
 
-
         # ----------------------------------------------------
-        # 7. Calculate original arrangement
+        # ORIGINAL BASELINE
         # ----------------------------------------------------
 
         (
@@ -243,9 +229,8 @@ def optimize(request: OptimizationRequest):
             request.cost_per_km
         )
 
-
         # ----------------------------------------------------
-        # 8. Calculate improvement
+        # IMPROVEMENT
         # ----------------------------------------------------
 
         if original_distance > 0:
@@ -254,9 +239,11 @@ def optimize(request: OptimizationRequest):
 
                 (
                     original_distance
-                    - total_distance
+                    -
+                    total_distance
                 )
-                / original_distance
+                /
+                original_distance
 
             ) * 100
 
@@ -271,9 +258,11 @@ def optimize(request: OptimizationRequest):
 
                 (
                     original_cost
-                    - total_cost
+                    -
+                    total_cost
                 )
-                / original_cost
+                /
+                original_cost
 
             ) * 100
 
@@ -281,9 +270,8 @@ def optimize(request: OptimizationRequest):
 
             cost_improvement = 0
 
-
         # ----------------------------------------------------
-        # 9. Prepare warehouse response
+        # WAREHOUSES
         # ----------------------------------------------------
 
         warehouses = []
@@ -309,9 +297,8 @@ def optimize(request: OptimizationRequest):
                 }
             )
 
-
         # ----------------------------------------------------
-        # 10. Prepare neighborhood assignments
+        # ASSIGNMENTS
         # ----------------------------------------------------
 
         assignments = []
@@ -322,65 +309,48 @@ def optimize(request: OptimizationRequest):
                 {
                     "neighborhood":
                         str(
-                            row[
-                                "neighborhood"
-                            ]
+                            row["neighborhood"]
                         ),
 
                     "latitude":
                         float(
-                            row[
-                                "latitude"
-                            ]
+                            row["latitude"]
                         ),
 
                     "longitude":
                         float(
-                            row[
-                                "longitude"
-                            ]
+                            row["longitude"]
                         ),
 
                     "daily_orders":
                         float(
-                            row[
-                                "daily_orders"
-                            ]
+                            row["daily_orders"]
                         ),
 
                     "warehouse":
                         int(
-                            row[
-                                "warehouse"
-                            ]
+                            row["warehouse"]
                         ),
 
                     "distance_km":
                         float(
-                            row[
-                                "distance_km"
-                            ]
+                            row["distance_km"]
                         ),
 
                     "weighted_distance":
                         float(
-                            row[
-                                "weighted_distance"
-                            ]
+                            row["weighted_distance"]
                         ),
 
                     "delivery_cost":
                         float(
-                            row[
-                                "delivery_cost"
-                            ]
+                            row["delivery_cost"]
                         )
                 }
             )
 
-
         # ----------------------------------------------------
-        # 11. Warehouse utilization
+        # WAREHOUSE UTILIZATION
         # ----------------------------------------------------
 
         utilization = []
@@ -390,23 +360,23 @@ def optimize(request: OptimizationRequest):
             request.number_of_warehouses + 1
         ):
 
-            warehouse_orders = result[
+            orders = result[
                 result["warehouse"]
-                == warehouse_id
+                ==
+                warehouse_id
             ]["daily_orders"].sum()
-
 
             if capacity:
 
                 utilization_percent = (
-                    warehouse_orders
-                    / capacity
+                    orders
+                    /
+                    capacity
                 ) * 100
 
             else:
 
                 utilization_percent = None
-
 
             utilization.append(
                 {
@@ -415,7 +385,7 @@ def optimize(request: OptimizationRequest):
 
                     "daily_orders":
                         float(
-                            warehouse_orders
+                            orders
                         ),
 
                     "capacity":
@@ -435,46 +405,25 @@ def optimize(request: OptimizationRequest):
                 }
             )
 
-
         # ----------------------------------------------------
-        # 12. Final JSON response
+        # FINAL RESPONSE
         # ----------------------------------------------------
 
-        response = {
+        return {
 
             "success": True,
 
             "message":
-                "Warehouse optimization completed successfully.",
-
-
-            # ------------------------------------------------
-            # Warehouse locations
-            # ------------------------------------------------
+                "Optimization completed successfully.",
 
             "warehouses":
                 warehouses,
 
-
-            # ------------------------------------------------
-            # Neighborhood assignments
-            # ------------------------------------------------
-
             "assignments":
                 assignments,
 
-
-            # ------------------------------------------------
-            # Warehouse utilization
-            # ------------------------------------------------
-
             "warehouse_utilization":
                 utilization,
-
-
-            # ------------------------------------------------
-            # Optimization metrics
-            # ------------------------------------------------
 
             "metrics":
                 {
@@ -492,53 +441,41 @@ def optimize(request: OptimizationRequest):
                     "number_of_warehouses":
                         request.number_of_warehouses,
 
-
                     "optimized_weighted_distance":
                         float(
                             total_distance
                         ),
-
 
                     "optimized_average_distance":
                         float(
                             average_distance
                         ),
 
-
                     "optimized_delivery_cost":
                         float(
                             total_cost
                         ),
-
 
                     "original_weighted_distance":
                         float(
                             original_distance
                         ),
 
-
                     "original_delivery_cost":
                         float(
                             original_cost
                         ),
-
 
                     "distance_improvement_percent":
                         float(
                             distance_improvement
                         ),
 
-
                     "cost_improvement_percent":
                         float(
                             cost_improvement
                         )
                 },
-
-
-            # ------------------------------------------------
-            # Original warehouse baseline
-            # ------------------------------------------------
 
             "original_warehouse":
                 {
@@ -555,42 +492,20 @@ def optimize(request: OptimizationRequest):
                 }
         }
 
-
-        # ----------------------------------------------------
-        # 13. Send response back to frontend
-        # ----------------------------------------------------
-
-        return response
-
-
-    # ========================================================
-    # HTTP ERROR
-    # ========================================================
-
     except HTTPException:
 
         raise
 
-
-    # ========================================================
-    # UNEXPECTED ERROR
-    # ========================================================
-
     except Exception as error:
 
         raise HTTPException(
-
             status_code=500,
-
-            detail=(
-                "Internal optimization error: "
-                + str(error)
-            )
+            detail=str(error)
         )
 
 
 # ============================================================
-# RUN MIDDLEWARE SERVER
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
@@ -602,16 +517,13 @@ if __name__ == "__main__":
     )
     print("=" * 60)
     print(
-        "Server: http://127.0.0.1:8000"
+        "API: http://127.0.0.1:8000"
     )
     print(
-        "API Docs: http://127.0.0.1:8000/docs"
+        "Documentation: http://127.0.0.1:8000/docs"
     )
     print(
-        "Optimization Endpoint:"
-    )
-    print(
-        "POST http://127.0.0.1:8000/optimize"
+        "Endpoint: POST /optimize"
     )
     print("=" * 60)
     print()
@@ -619,6 +531,5 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="127.0.0.1",
-        port=8000,
-        reload=True
+        port=8000
     )
